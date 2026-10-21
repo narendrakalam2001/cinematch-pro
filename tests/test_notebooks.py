@@ -36,14 +36,21 @@ def _shell_commands(code_cells: list[str]) -> list[str]:
 
 
 def test_code_cells_are_numbered_sequentially(code_cells: list[str]):
-    """Every code cell starts with '# CELL n' and n counts 1..N, matching the instructions given to users."""
-    numbers = [int(m.group(1)) for c in code_cells if (m := re.match(r"# CELL (\d+) ", c))]
-    assert numbers == list(range(1, len(code_cells) + 1))
+    """Numbered cells ('# CELL n') count 1..N in order, matching the instructions given to users.
+
+    Sub-cells such as '# CELL 8b' may follow their parent, and un-numbered helper cells
+    ('%%writefile ...' or '# CELL: patch ...') are ignored.
+    """
+    labels = [m.groups() for c in code_cells if (m := re.match(r"# CELL (\d+)([a-z]?) ", c))]
+    base_numbers = [int(number) for number, suffix in labels if not suffix]
+    assert base_numbers == list(range(1, len(base_numbers) + 1))
+    order = [(int(number), suffix) for number, suffix in labels]
+    assert order == sorted(order), "sub-cells must come right after their parent cell"
 
 
 def test_every_script_called_by_the_notebook_exists_and_accepts_its_flags(code_cells: list[str]):
     """`!python -m module --flag ...` must refer to a real module that defines each flag."""
-    checked = 0
+    checked_modules: set[str] = set()
     for command in _shell_commands(code_cells):
         module, *rest = command.split()
         if module == "pytest":
@@ -53,8 +60,12 @@ def test_every_script_called_by_the_notebook_exists_and_accepts_its_flags(code_c
         source = source_file.read_text(encoding="utf-8")
         for flag in re.findall(r"(--[a-z][a-z-]*)", " ".join(rest)):
             assert f'"{flag}"' in source, f"{module} has no {flag} option, but the notebook passes it"
-        checked += 1
-    assert checked == 7  # preprocessing, content, semantic, CF, posters, sentiment, check_artifacts
+        checked_modules.add(module)
+    core = {
+        "src.preprocessing", "scripts.build_content_model", "scripts.ingest_descriptions", "scripts.build_cf_model",
+        "scripts.build_faiss_index", "scripts.train_sentiment", "scripts.check_artifacts",
+    }
+    assert core <= checked_modules  # `scripts.enrich_credits` (TMDB credits fix) may be run in addition
 
 
 def test_notebook_only_interpolates_variables_it_defines(code_cells: list[str]):
@@ -68,6 +79,16 @@ def test_notebook_only_interpolates_variables_it_defines(code_cells: list[str]):
         defined.update(re.findall(r"^([A-Z_]+)\s*=", cell, flags=re.M))
 
 
+def _with_run_mode(cell: str, mode: str) -> str:
+    """Return CELL 3's code with RUN_MODE set to `mode` (whatever value the notebook ships with).
+
+    The shipped FULL notebook also locks itself with `assert RUN_MODE == "FULL"`; that safety line
+    is dropped here so every mode can be exercised.
+    """
+    cell = re.sub(r'RUN_MODE = "[A-Za-z]*"', f'RUN_MODE = "{mode}"', cell, count=1)
+    return "\n".join(line for line in cell.splitlines() if not line.startswith("assert RUN_MODE =="))
+
+
 @pytest.mark.parametrize("mode, sentiment_args, poster_args", [
     ("QUICK", "--sample 5000", "--limit 2000"),
     ("FULL", "", ""),
@@ -76,7 +97,7 @@ def test_run_mode_switch_controls_sizes(code_cells: list[str], mode: str, sentim
     """QUICK caps sentiment samples and posters; FULL passes no cap flags at all."""
     cell = next(c for c in code_cells if c.startswith("# CELL 3"))
     namespace: dict = {}
-    exec(cell.replace('RUN_MODE = "QUICK"', f'RUN_MODE = "{mode}"'), namespace)
+    exec(_with_run_mode(cell, mode), namespace)
     assert namespace["SENT_ARGS"] == sentiment_args
     assert namespace["POSTER_ARGS"] == poster_args
 
@@ -85,7 +106,7 @@ def test_invalid_run_mode_is_rejected(code_cells: list[str]):
     """A typo in RUN_MODE fails immediately instead of mid-run."""
     cell = next(c for c in code_cells if c.startswith("# CELL 3"))
     with pytest.raises(AssertionError):
-        exec(cell.replace('RUN_MODE = "QUICK"', 'RUN_MODE = "MEDIUM"'), {})
+        exec(_with_run_mode(cell, "MEDIUM"), {})
 
 
 @pytest.fixture
