@@ -1,0 +1,79 @@
+# =============================================================================
+# CineMatch Pro — .gitignore
+#
+# GOES TO GITHUB (needed for CI, Docker, Render / Hugging Face Space, Streamlit Cloud):
+#   src/ services/ serving/ scripts/ frontend/ tests/ docs/ notebooks/ .github/
+#   Dockerfile  .dockerignore  render.yaml  requirements.txt  frontend/requirements.txt
+#   .streamlit/config.toml  .env.example  README.md  LICENSE  models/model_card.json
+#
+# STAYS OFF GITHUB:
+#   secrets (.env) and the big trained artifacts (models/, chromadb_store/, data/).
+#   GitHub rejects files > 100 MB (svd_model.pkl, model.safetensors, chroma.sqlite3 ...),
+#   so the artifacts live on the Hugging Face Hub instead:
+#       python -m scripts.upload_artifacts --repo-id <user>/cinematch-pro-artifacts
+#   and the deployed API downloads them at startup (HF_ARTIFACTS_REPO).
+# =============================================================================
+
+# ---- Secrets (NEVER commit) --------------------------------------------------
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+secrets.toml
+*.pem
+*.key
+
+# ---- Trained artifacts & data (too large for git; hosted on Hugging Face Hub) -
+models/*
+!models/model_card.json
+chromadb_store/
+data/
+*.pkl
+*.safetensors
+*.index
+*.faiss
+*.pt
+*.pth
+*.onnx
+*.parquet
+*.zip
+*.tar.gz
+credits_cache.jsonl
+
+# ---- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.python-version
+
+# ---- Test / lint / coverage output -------------------------------------------
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# ---- Jupyter -----------------------------------------------------------------
+.ipynb_checkpoints/
+
+# ---- Logs & temp ---------------------------------------------------------------
+*.log
+logs/
+tmp/
+.hf_stage/
+
+# ---- Editors & OS ----------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

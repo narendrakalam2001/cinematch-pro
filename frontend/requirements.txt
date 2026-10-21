@@ -1,0 +1,5 @@
+# Dependencies for the Streamlit frontend ONLY (Streamlit Community Cloud installs this file
+# because it sits next to the entrypoint, taking precedence over the repo-root requirements.txt).
+# The heavy ML packages live in the backend image, not here.
+streamlit
+requests

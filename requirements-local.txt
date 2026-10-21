@@ -1,0 +1,45 @@
+# Local environment matching the Kaggle training run (versions printed by Kaggle CELL 2).
+# The trained artifacts (chromadb_store, svd_model.pkl, tfidf pickles) are version-sensitive,
+# so keep these pinned. Install scikit-surprise from conda-forge FIRST (see steps).
+
+# --- Core ---
+numpy==2.1.3
+pandas==2.3.3
+scikit-learn==1.6.1
+scipy
+pyarrow
+python-dotenv
+openpyxl
+# conda install -c conda-forge scikit-surprise   (target: 1.1.5)
+
+# --- Deep learning / NLP ---
+torch
+transformers==5.16.1
+sentence-transformers==5.7.0
+datasets
+spacy
+
+# --- Visual search / vector store ---
+faiss-cpu
+Pillow
+chromadb==1.5.9
+
+# --- LLM / chatbot ---
+langchain>=0.3,<0.4          # project code uses AgentExecutor (removed in langchain 1.x)
+langchain-google-genai>=2.0,<3
+google-generativeai
+
+# --- API / frontend ---
+requests
+fastapi
+uvicorn[standard]
+python-multipart
+streamlit
+pydantic
+matplotlib
+plotly
+wordcloud
+
+# --- Tests ---
+pytest
+httpx

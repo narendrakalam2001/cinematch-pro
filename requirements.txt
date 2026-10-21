@@ -1,0 +1,60 @@
+# CineMatch Pro — dependencies.
+# Pinned to the versions the trained artifacts (models/, chromadb_store/) were built with on Kaggle:
+# the Chroma store and the scikit-learn / surprise pickles are version-sensitive.
+# Python 3.11 is used in CI, Docker and local development.
+
+# --- Core ---
+numpy==2.1.3
+pandas==2.3.3
+pyarrow
+python-dotenv
+scikit-learn==1.6.1
+scipy
+openpyxl      # read .xlsx files (pd.read_excel)
+xlrd          # read legacy .xls files
+
+# --- Collaborative filtering ---
+# scikit-surprise has no prebuilt Windows wheels on PyPI. In a conda env install it FIRST:
+#     conda install -c conda-forge scikit-surprise
+# then install this file (pip sees it as already satisfied).
+scikit-surprise==1.1.5
+
+# --- Deep learning / NLP ---
+torch         # for a smaller CPU-only install: --extra-index-url https://download.pytorch.org/whl/cpu
+transformers==5.16.1
+huggingface_hub   # artifact download/upload (also a dependency of transformers)
+datasets
+sentence-transformers==5.7.0
+spacy
+# After installing:  python -m spacy download en_core_web_sm
+
+# --- Visual search / vector store ---
+faiss-cpu
+Pillow
+chromadb==1.5.9
+
+# --- LLM / chatbot ---
+# The code uses langchain_core.pydantic_v1 and ConversationBufferWindowMemory (removed in langchain 1.x).
+langchain>=0.3,<0.4
+langchain-google-genai>=2.0,<3
+google-generativeai
+
+# --- API clients ---
+requests
+
+# --- Backend / frontend ---
+fastapi
+uvicorn[standard]
+python-multipart   # required for the poster-upload endpoint
+streamlit
+pydantic
+
+# --- Visualization ---
+matplotlib
+plotly
+wordcloud
+
+# --- Testing / quality ---
+pytest
+pytest-cov
+httpx

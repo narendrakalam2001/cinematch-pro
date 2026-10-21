@@ -1,0 +1,42 @@
+# Render.com blueprint for CineMatch Pro's FastAPI backend.
+# Deploy: Render dashboard -> "New +" -> "Blueprint" -> pick this repo.
+#
+# IMPORTANT — memory: the API loads PyTorch, CLIP, RoBERTa, SBERT, FAISS, ChromaDB and the
+# movie catalogue. Render's FREE instance has only 512 MB RAM (and 0.1 CPU) and will be killed for
+# running out of memory. Use a paid instance with enough RAM (check the service's memory graph; start
+# with "standard" = 2 GB and move up if it restarts). For a FREE host use a Hugging Face Space
+# (2 vCPU / 16 GB) instead:  python -m scripts.deploy_hf_space  (see README / deployment guide).
+#
+# The ~1 GB of trained artifacts are not in git: the API downloads them from a (private) Hugging Face
+# Hub repo at startup (HF_ARTIFACTS_REPO + HF_TOKEN), then serves.
+#
+# The Streamlit frontend is deployed separately on Streamlit Community Cloud with its API_BASE_URL
+# secret set to this service's public URL.
+
+services:
+  - type: web
+    name: cinematch-pro-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: standard # 2 GB RAM / 1 CPU — "free" (512 MB) cannot hold these models
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: HF_ARTIFACTS_REPO
+        sync: false # e.g. narendrakalam2001/cinematch-pro-artifacts
+      - key: HF_TOKEN
+        sync: false # READ token for the private artifacts repo
+      - key: TMDB_API_KEY
+        sync: false # set manually in the Render dashboard — never commit real keys
+      - key: OMDB_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+    autoDeploy: true
