@@ -20,16 +20,15 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
-from src.aspect_sentiment import AspectSentimentAnalyzer, AspectSentimentError
 from src.chatbot import CineBot, ChatbotError
-from src.collaborative_filter import CollaborativeFilter, CollaborativeFilterError
 from src.config import (
     FAISS_INDEX_PATH,
     GEMINI_API_KEY,
+    LITE_MODE,
     MERGED_MOVIES_PARQUET,
     OMDB_API_KEY,
     ROBERTA_MODEL_DIR,
@@ -39,15 +38,27 @@ from src.config import (
     logger,
 )
 from src.content_filter import ContentBasedFilter, ContentFilterError
-from src.explanation_engine import ExplanationEngine
+from src.errors import (
+    AspectSentimentError,
+    CollaborativeFilterError,
+    SemanticSearchError,
+    VisualSearchError,
+)
 from src.fusion_engine import FusionEngine, FusionEngineError, RecommendationRow, ScoredMovie
 from src.omdb_client import OMDBClient
-from src.semantic_search import SemanticSearchEngine, SemanticSearchError
-from src.sentiment_engine import SentimentEngine
 from src.tmdb_client import TMDBClient
-from src.visual_search import VisualSearchEngine, VisualSearchError
 from services.movie_catalog import MovieCatalog, as_str_list, normalize_text, tmdb_image
 from src.json_utils import to_jsonable
+
+# The heavy engines (PyTorch, ChromaDB, scikit-surprise, spaCy, google.generativeai) are imported lazily
+# inside their `_safe_load_*` loader, so lite mode never pays for them.
+if TYPE_CHECKING:
+    from src.aspect_sentiment import AspectSentimentAnalyzer
+    from src.collaborative_filter import CollaborativeFilter
+    from src.explanation_engine import ExplanationEngine
+    from src.semantic_search import SemanticSearchEngine
+    from src.sentiment_engine import SentimentEngine
+    from src.visual_search import VisualSearchEngine
 
 _REMOTE_TIMEOUT_SECONDS = 20
 _ROW_SIZE = 12
@@ -102,15 +113,21 @@ class RecommendationService:
 
         self.movies: pd.DataFrame | None = self._safe_load_movies()
 
-        self.cf = self._safe_load_cf()
         self.content = self._safe_load_content()
-        self.semantic = self._safe_load_semantic()
-        self.visual = self._safe_load_visual()
-        self.sentiment = self._safe_load_sentiment()
-        self.aspect = self._safe_load_aspect()
+        if LITE_MODE:
+            logger.info("Lite mode: skipping collaborative, semantic, visual and sentiment engines.")
+            self.cf = self.semantic = self.visual = self.sentiment = self.aspect = None
+        else:
+            self.cf = self._safe_load_cf()
+            self.semantic = self._safe_load_semantic()
+            self.visual = self._safe_load_visual()
+            self.sentiment = self._safe_load_sentiment()
+            self.aspect = self._safe_load_aspect()
 
+        # Fusion needs the content filter and the catalogue; CF and semantic search are optional
+        # extras (without them recommendations are content-based and some rows are skipped).
         self.fusion: FusionEngine | None = None
-        if self.cf and self.content and self.semantic and self.movies is not None:
+        if self.content and self.movies is not None:
             self.fusion = FusionEngine(self.cf, self.content, self.semantic, self.movies)
         else:
             logger.warning("FusionEngine unavailable — one or more dependencies missing.")
@@ -146,6 +163,8 @@ class RecommendationService:
             logger.warning("SVD model not found at %s.", SVD_MODEL_PATH)
             return None
         try:
+            from src.collaborative_filter import CollaborativeFilter
+
             return CollaborativeFilter().load(SVD_MODEL_PATH)
         except CollaborativeFilterError as exc:
             logger.error("Failed to load collaborative filter: %s", exc)
@@ -163,6 +182,8 @@ class RecommendationService:
 
     def _safe_load_semantic(self) -> SemanticSearchEngine | None:
         try:
+            from src.semantic_search import SemanticSearchEngine
+
             engine = SemanticSearchEngine()
             if engine.count() == 0:
                 logger.warning("ChromaDB collection is empty — semantic search will return no results.")
@@ -176,6 +197,8 @@ class RecommendationService:
             logger.warning("FAISS poster index not found at %s.", FAISS_INDEX_PATH)
             return None
         try:
+            from src.visual_search import VisualSearchEngine
+
             engine = VisualSearchEngine()
             engine.load()
             return engine
@@ -188,6 +211,8 @@ class RecommendationService:
             logger.warning("Fine-tuned sentiment model not found at %s.", ROBERTA_MODEL_DIR)
             return None
         try:
+            from src.sentiment_engine import SentimentEngine
+
             return SentimentEngine(model_path=ROBERTA_MODEL_DIR)
         except Exception as exc:  # noqa: BLE001 - transformers raises many error types
             logger.error("Failed to load sentiment engine: %s", exc)
@@ -197,6 +222,8 @@ class RecommendationService:
         if self.sentiment is None:
             return None
         try:
+            from src.aspect_sentiment import AspectSentimentAnalyzer
+
             return AspectSentimentAnalyzer(self.sentiment)
         except AspectSentimentError as exc:
             logger.error("Failed to load aspect sentiment analyzer: %s", exc)
@@ -218,14 +245,24 @@ class RecommendationService:
         if not GEMINI_API_KEY:
             logger.warning("GEMINI_API_KEY not set — LLM explanations disabled.")
             return None
+        if LITE_MODE or self.fusion is None:
+            return None
+        from src.explanation_engine import ExplanationEngine
+
         return ExplanationEngine(fusion_engine=self.fusion)
 
     def _safe_load_chatbot(self) -> CineBot | None:
-        if not (GEMINI_API_KEY and self.semantic and self.tmdb and self.fusion and self.sentiment):
-            logger.warning("CineBot disabled — missing GEMINI_API_KEY or a required engine.")
+        if not (GEMINI_API_KEY and self.tmdb and self.catalog):
+            logger.warning("CineBot disabled — missing GEMINI_API_KEY, TMDB client or movie catalogue.")
             return None
+        # Tools whose engine is absent (lite mode) say so themselves; movie_search falls back to
+        # title/TMDB search so the bot can still ground its picks in the catalogue.
         return CineBot(
-            semantic=self.semantic, tmdb=self.tmdb, fusion=self.fusion, sentiment=self.sentiment
+            semantic=self.semantic,
+            tmdb=self.tmdb,
+            fusion=self.fusion,
+            sentiment=self.sentiment,
+            search_fn=lambda query: self.search_movies(query, top_k=5),
         )
 
     # ------------------------------------------------------------------
@@ -248,6 +285,7 @@ class RecommendationService:
             "tmdb_client": self.tmdb is not None,
             "omdb_client": self.omdb is not None,
             "chatbot": self.chatbot is not None,
+            "lite_mode": LITE_MODE,
         }
 
     def get_movie(self, movie_id: int) -> MovieCardData:

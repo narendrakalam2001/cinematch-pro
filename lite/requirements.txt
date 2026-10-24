@@ -1,0 +1,17 @@
+# LITE deployment (free Streamlit Community Cloud): no PyTorch / transformers / ChromaDB / surprise / spaCy.
+# Versions of numpy, pandas and scikit-learn match the training run so the pickled TF-IDF files load.
+streamlit
+requests
+fastapi
+httpx
+python-multipart   # FastAPI needs it to declare the poster-upload route
+pydantic
+numpy==2.1.3
+pandas==2.3.3
+pyarrow
+scipy
+scikit-learn==1.6.1
+python-dotenv
+huggingface_hub
+langchain>=0.3,<0.4
+langchain-google-genai>=2.0,<3

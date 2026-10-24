@@ -20,8 +20,7 @@ from surprise.model_selection import GridSearchCV, train_test_split
 from src.config import SVD_MODEL_PATH, logger, settings
 
 
-class CollaborativeFilterError(RuntimeError):
-    """Raised for collaborative-filtering-specific failures."""
+from src.errors import CollaborativeFilterError  # noqa: E402,F401  (re-exported: defined in src/errors.py)
 
 
 class CollaborativeFilter:

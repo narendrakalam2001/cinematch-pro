@@ -19,8 +19,7 @@ from src.config import ASPECT_KEYWORDS, logger
 from src.sentiment_engine import SentimentEngine
 
 
-class AspectSentimentError(RuntimeError):
-    """Raised for aspect-sentiment-specific failures."""
+from src.errors import AspectSentimentError  # noqa: E402,F401  (re-exported: defined in src/errors.py)
 
 
 @dataclass

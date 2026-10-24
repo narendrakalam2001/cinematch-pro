@@ -31,8 +31,7 @@ LABEL2ID = {"negative": 0, "positive": 1}
 ID2LABEL = {v: k for k, v in LABEL2ID.items()}
 
 
-class SentimentEngineError(RuntimeError):
-    """Raised for sentiment-engine-specific failures."""
+from src.errors import SentimentEngineError  # noqa: E402,F401  (re-exported: defined in src/errors.py)
 
 
 @dataclass

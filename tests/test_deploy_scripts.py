@@ -51,6 +51,24 @@ def test_deploy_space_creates_docker_space_uploads_and_sets_variables(monkeypatc
     assert api.add_space_secret.call_count == 0  # secrets are added by hand, never by the script
 
 
+def test_deploy_space_explains_the_402_pro_requirement(monkeypatch, caplog):
+    """HF answers 402 for Docker Spaces on free hardware; the script says what to do instead of a traceback."""
+    import httpx
+    from huggingface_hub.errors import HfHubHTTPError
+
+    monkeypatch.setenv("HF_TOKEN", "hf_write")
+    response = httpx.Response(402, request=httpx.Request("POST", "https://huggingface.co/api/repos/create"))
+    api = MagicMock()
+    api.create_repo.side_effect = HfHubHTTPError("402 Payment Required", response=response)
+    with patch("huggingface_hub.HfApi", return_value=api):
+        assert deploy_hf_space.main(["--space-id", "u/api", "--artifacts-repo", "u/art"]) == 1
+    api.upload_folder.assert_not_called()  # nothing is uploaded to a Space that was not created
+
+    api.create_repo.side_effect = HfHubHTTPError("500 boom", response=httpx.Response(500, request=response.request))
+    with patch("huggingface_hub.HfApi", return_value=api), pytest.raises(HfHubHTTPError):
+        deploy_hf_space.main(["--space-id", "u/api", "--artifacts-repo", "u/art"])  # other errors still surface
+
+
 # ---------------------------------------------------------------------------
 # upload_artifacts
 # ---------------------------------------------------------------------------
@@ -84,6 +102,7 @@ MUST_BE_COMMITTED = [
     ".streamlit/config.toml", ".env.example", "README.md", "LICENSE", ".github/workflows/ci.yml",
     "src/config.py", "services/recommendation_service.py", "serving/api.py", "frontend/app.py",
     "scripts/run_api.py", "tests/test_api.py", "models/model_card.json",
+    "lite/streamlit_app.py", "lite/requirements.txt", "src/errors.py",
     "docs/screenshots/cinebot.png", "docs/gifs/User_Portal.gif", "docs/architecture/cinematch_pro_system_architecture.svg",
     "notebooks/Kaggle_Training.ipynb", "notebooks/cinematch_pro_eda.ipynb",
 ]

@@ -31,7 +31,7 @@ Streaming platforms show you a row of titles and no reason why. You can't search
 - **CineBot** — a Hinglish-friendly movie-critic chatbot (LangChain + Gemini) grounded in the platform's own tools, whose movie suggestions come back as **clickable cards**
 - **Graceful degradation** — if TMDB, OMDB or Gemini is down, pages still load from the offline catalogue and say so, instead of crashing
 
-This is a capstone built to production standards: type hints, docstrings, structured logging, env-based secrets, a 221-test pytest suite, Docker and GitHub Actions.
+This is a capstone built to production standards: type hints, docstrings, structured logging, env-based secrets, a 229-test pytest suite, Docker and GitHub Actions.
 
 ---
 
@@ -46,7 +46,7 @@ This is a capstone built to production standards: type hints, docstrings, struct
 | **Content filter** | TF-IDF + cosine similarity | Movies covered | `62,423` | — |
 | **Semantic search** | SBERT `all-MiniLM-L6-v2` + ChromaDB | Plots indexed | `52,703` ¹ | — |
 | **Verified credits** | TMDB API (director · cast · composer · keywords) | Movies re-fetched | `20,060` ² | — |
-| **Test suite** | pytest | Tests | `221` | — |
+| **Test suite** | pytest | Tests | `229` | — |
 
 > ¹ Movies without a real plot overview (< 40 characters) are excluded from the semantic index — genre-only documents all embed identically and pollute search results (see [Engineering Notes](#-engineering-notes--data-quality-findings)).  
 > ² The big TMDB/IMDB export has misaligned credit columns; the most-voted movies are re-fetched live from TMDB (see [Engineering Notes](#-engineering-notes--data-quality-findings)).  
@@ -62,7 +62,7 @@ This is a capstone built to production standards: type hints, docstrings, struct
 | 🏋️ **Kaggle Training Notebook** (GPU pipeline, end to end) | [notebooks/Kaggle_Training.ipynb](notebooks/Kaggle_Training.ipynb) |
 | 🚀 **FastAPI Swagger UI (local)** | `http://localhost:8000/docs` |
 | 🎬 **Streamlit App (local)** | `http://localhost:8501` |
-| 🌐 **Live demo** | _Deployment in progress — Hugging Face Space (API) + Streamlit Cloud (UI)_ |
+| 🌐 **Live demo** | _Deployment in progress — Streamlit Community Cloud (lite, free)_ |
 
 ---
 
@@ -246,6 +246,7 @@ cinematch-pro/
 │   ├── poster_utils.py                     # Poster URL / download helpers
 │   ├── json_utils.py                       # numpy → JSON conversion · secret redaction
 │   ├── artifact_store.py                   # Downloads trained artifacts from the Hugging Face Hub at startup
+│   ├── errors.py                           # Shared exception types (importable without loading PyTorch)
 │   └── model_card.py                       # models/model_card.json writer
 │
 ├── services/
@@ -273,7 +274,7 @@ cinematch-pro/
 │   ├── run_api.py                          # python -m scripts.run_api
 │   └── run_app.py                          # python -m scripts.run_app
 │
-├── tests/                                  # 221 pytest tests across 22 files
+├── tests/                                  # 229 pytest tests across 22 files
 │
 ├── notebooks/
 │   ├── cinematch_pro_eda.ipynb             # Exploratory data analysis
@@ -293,6 +294,9 @@ cinematch-pro/
 │   ├── screenshots/                        # 7 app screenshots
 │   └── gifs/User_Portal.gif
 │
+├── lite/                                   # FREE deployment: one Streamlit app, no torch (see Deployment)
+│   ├── streamlit_app.py                    #   Streamlit Cloud entrypoint (UI + API in one process)
+│   └── requirements.txt                    #   Small dependency set (no PyTorch / ChromaDB / surprise)
 ├── .streamlit/config.toml                  # Dark theme + headless server settings
 ├── .github/workflows/ci.yml                # pytest + coverage + Docker build
 ├── Dockerfile                              # FastAPI backend image (multi-stage, non-root)
@@ -370,7 +374,7 @@ python -m scripts.run_app       # Terminal 2 → http://localhost:8501
 
 ```bash
 pytest tests/ -v --cov=src --cov=serving --cov=services --cov-report=term-missing
-# 221 tests collected
+# 229 tests collected
 ```
 
 ---
@@ -433,25 +437,31 @@ Tests use fakes/mocks for TMDB, OMDB and Gemini, so CI needs no real secrets. De
 
 ## ☁️ Deployment
 
-| Part | Where | Why |
+Two ways to deploy, depending on budget:
+
+| | **Lite — free** | **Full** |
 |---|---|---|
-| **Code, docs, CI** | GitHub | Small files only — `.gitignore` keeps secrets and the ~1 GB of artifacts out |
-| **Trained artifacts** | Hugging Face Hub (private model repo) | GitHub rejects files > 100 MB; `scripts/upload_artifacts.py` uploads them |
-| **FastAPI backend** | Hugging Face Space (Docker, free CPU: 2 vCPU / 16 GB RAM) | The models need several GB of RAM — Render's free tier has only 512 MB |
-| **Streamlit frontend** | Streamlit Community Cloud | Lightweight UI; installs only `frontend/requirements.txt` and reads the backend URL from the `API_BASE_URL` secret |
+| Hosting | One Streamlit Community Cloud app (UI + API in a single process) | FastAPI on a Docker host with ≥ 4 GB RAM + Streamlit Cloud for the UI |
+| Cost | $0 | Hugging Face PRO ($9/mo, Docker Space) or a paid Render instance |
+| Memory | fits the free tier (~1 GB) — no PyTorch is imported | needs several GB (PyTorch, CLIP, RoBERTa, SBERT, ChromaDB, SVD) |
+| Works | title/mood search, movie cards (cast, crew, trailer, budget, awards), content-based related rows, actor/director pages, trending, watchlist, CineBot (Gemini) | everything above **plus** poster visual search, plot-semantic search, collaborative filtering and RoBERTa review sentiment |
+| Entrypoint | `lite/streamlit_app.py` | `serving/api.py` + `frontend/app.py` |
+
+**Trained artifacts** (~1.2 GB) are too big for GitHub (100 MB per file), so they live in a *private* Hugging Face model repo; the deployed app downloads what it needs at startup (lite: only the ~70 MB catalogue + TF-IDF).
 
 ```bash
-# 1) upload the trained artifacts (needs HF_TOKEN with WRITE access)
+# 1) upload the artifacts once (needs HF_TOKEN with WRITE access)
 python -m scripts.upload_artifacts --repo-id <user>/cinematch-pro-artifacts
 
-# 2) deploy the API to a Hugging Face Space
-python -m scripts.deploy_hf_space --space-id <user>/cinematch-pro-api --artifacts-repo <user>/cinematch-pro-artifacts
-# then add the Space secrets: HF_TOKEN (read), TMDB_API_KEY, GEMINI_API_KEY, OMDB_API_KEY
+# 2a) LITE (free): Streamlit Community Cloud -> main file  lite/streamlit_app.py
+#     Secrets: HF_ARTIFACTS_REPO, HF_TOKEN (read), TMDB_API_KEY, GEMINI_API_KEY, OMDB_API_KEY (optional)
 
-# 3) Streamlit Cloud: main file = frontend/app.py, secret:  API_BASE_URL = "https://<user>-cinematch-pro-api.hf.space"
+# 2b) FULL: deploy the API to a Hugging Face Docker Space (PRO), then point a Streamlit app at it
+python -m scripts.deploy_hf_space --space-id <user>/cinematch-pro-api --artifacts-repo <user>/cinematch-pro-artifacts
+#     Streamlit Cloud: main file frontend/app.py, secret  API_BASE_URL = "https://<user>-cinematch-pro-api.hf.space"
 ```
 
-A Render blueprint ([`render.yaml`](render.yaml)) is also included; it needs a paid instance with enough RAM.
+Lite mode is switched on by `CINEMATCH_LITE=1` and the in-process API by `CINEMATCH_EMBEDDED=1` (both set by `lite/streamlit_app.py`). A Render blueprint ([`render.yaml`](render.yaml)) is also included for the full version; it needs a paid instance with enough RAM.
 
 ---
 
@@ -570,7 +580,7 @@ CineBot uses a **plan → run tools → answer** loop on top of LangChain instea
 ## 🧪 Test Coverage
 
 ```
-221 tests across 24 files:
+229 tests across 25 files:
 
   test_api.py                (19)  — every endpoint · numpy-safe JSON · 404/503 mapping · multipart upload
   test_frontend.py           (14)  — Streamlit AppTest flows: search → View → card → related movie → Back
@@ -588,7 +598,8 @@ CineBot uses a **plan → run tools → answer** loop on top of LangChain instea
   test_make_subset.py         (8)  — dataset subsetting
   test_collaborative_filter.py(7)  · test_content_filter.py (7) · test_data_loader.py (7)
   test_visual_search_index.py (6)  · test_scripts.py (6) · test_cache_utils.py (5)
-  test_artifact_store.py (6) · test_deploy_scripts.py (8)   — Hub download · Space staging · .gitignore rules · API startup
+  test_artifact_store.py (6) · test_deploy_scripts.py (9)   — Hub download · Space staging · .gitignore rules · API startup
+  test_lite_mode.py          (7)  — lite mode: API imports without PyTorch/ChromaDB · content-only fusion · in-process UI
   test_omdb_client.py (4) · test_config.py (4) · test_model_card.py (4) · test_json_utils.py (2)
 ```
 
@@ -611,7 +622,7 @@ CineBot uses a **plan → run tools → answer** loop on top of LangChain instea
 | **Security** | Keys only via `.env`/env vars · API keys redacted from logs · non-root Docker user |
 | **Logging** | Python `logging`, structured one-line records |
 | **Code quality** | Type hints and Google-style docstrings on all functions · `ruff` in CI |
-| **Testing** | 221 pytest tests with mocked external services |
+| **Testing** | 229 pytest tests with mocked external services |
 | **Reproducibility** | Training metrics and library versions written to `models/model_card.json` |
 | **CI/CD** | GitHub Actions — tests + coverage + Docker build on every push |
 
@@ -687,7 +698,22 @@ Real problems found while building this, and how they were fixed:
 | 11 | BC5CDR Clinical NER | Biomedical NLP | BioBERT | F1 = 0.8847 · Chemical F1 = 0.9239 |
 | 12 | News Topic Modeling | Media Analytics | LDA (Gensim) | Cv = 0.6225 · Diversity = 0.92 |
 | 13 | Chest X-Ray Diagnosis | Healthcare AI | DenseNet121 | Mean AUC = 0.7864 · 14 classes |
-| 14 | **CineMatch Pro** | **Entertainment / Media Tech** | **Hybrid SVD + TF-IDF + SBERT · CLIP · RoBERTa** | **RMSE = 0.8005 · Sentiment Acc = 94.26% · 56K posters** |
+| 14 | Real-Time Object Detection | Computer Vision / Retail-Security | YOLOv8s | mAP50-95 = 0.5341 · 32 FPS |
+| 15 | Face Emotion Recognition | EdTech / Retail CX | CNN-from-scratch | Macro-F1 = 0.5950 · 7 classes |
+| 16 | Customer Segmentation Engine | E-Commerce / BFSI | DBSCAN (Unsupervised) | Silhouette = 0.4056 |
+| 17 | Market Basket Analysis (Instacart) | Retail / Quick-Commerce | Apriori | 68,820 rules · mean lift = 15.66 |
+| 18 | E-Commerce / OTT Recommender | E-Commerce / Streaming | Hybrid (SVD + Content) | NDCG@10 = 0.0407 · 4 candidates |
+| 19 | Hospital Readmission Prediction | Healthcare / Hospital Ops | ExtraTrees | F1 = 0.2702 · ROC-AUC = 0.6513 |
+| 20 | HR Policy Intelligence Chatbot | HR Tech / Enterprise GenAI | Gemini 3.6 Flash + RAG | 30/30 tests · guardrail threshold=0.35 |
+| 21 | Employee Attrition Prediction | HR Tech / People Analytics | NeuralNet (MLP) | F1 = 0.3902 · ROC-AUC = 0.6698 |
+| 22 | ANN From Scratch — MNIST Digit Recognizer | Deep Learning Fundamentals | From-scratch ANN | Test Acc = 0.9740 · Macro F1 = 0.9739 |
+| 23 | Insurance Premium Prediction | Insurance / Actuarial ML | RandomForest | RMSLE = 1.1586 · 1.2M real policies |
+| 24 | Health Insurance Cross-Sell | Insurance / BFSI | ExtraTrees | ROC-AUC = 0.8404 · 67.8% calls saved |
+| 25 | Ride Fare Price Prediction | Mobility / Ride-Hailing | LightGBM | RMSE = $3.81 · R² = 0.8419 · 55M rows |
+| 26 | E-Commerce BI & SQL Analytics | Retail Analytics / BI | SQL + FastAPI + Streamlit | 40 tests passing · 100K orders |
+| 27 | AgriSense AI | AgriTech | EfficientNetB3 | Accuracy = 98.44% · Macro-F1 = 0.9843 · 38 classes |
+| 28 | AI Loan Underwriting Platform | BFSI / Fintech | XGBoost (credit + fraud) | Credit ROC-AUC = 0.858 · Fraud ROC-AUC = 0.955 · 242 tests |
+| 29 | **CineMatch Pro** | **Entertainment / Media Tech** | **Hybrid SVD + TF-IDF + SBERT · CLIP · RoBERTa** | **RMSE = 0.8005 · Sentiment Acc = 94.26% · 56K posters** |
 
 ---
 

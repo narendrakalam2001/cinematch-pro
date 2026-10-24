@@ -18,8 +18,7 @@ from chromadb.utils import embedding_functions
 from src.config import CHROMADB_DIR, logger, settings
 
 
-class SemanticSearchError(RuntimeError):
-    """Raised for semantic-search-specific failures."""
+from src.errors import SemanticSearchError  # noqa: E402,F401  (re-exported: defined in src/errors.py)
 
 
 class SemanticSearchEngine:

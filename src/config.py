@@ -113,6 +113,10 @@ TMDB_API_KEY: Final[str | None] = os.getenv("TMDB_API_KEY")
 OMDB_API_KEY: Final[str | None] = os.getenv("OMDB_API_KEY")
 GEMINI_API_KEY: Final[str | None] = os.getenv("GEMINI_API_KEY")
 # Gemini model ids are retired regularly; override in .env without touching code.
+# Lite mode: skip the heavy engines (PyTorch / CLIP / RoBERTa / SBERT / ChromaDB / SVD) so the app fits
+# in ~1 GB of RAM (free Streamlit Community Cloud). Visual search, plot-semantic search, collaborative
+# filtering and review sentiment are unavailable; search, movie cards, content-based rows and CineBot work.
+LITE_MODE: Final[bool] = os.getenv("CINEMATCH_LITE", "").strip().lower() in {"1", "true", "yes", "on"}
 GEMINI_MODEL: Final[str] = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
 TMDB_BASE_URL: Final[str] = "https://api.themoviedb.org/3"

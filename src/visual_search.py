@@ -51,8 +51,7 @@ def _to_feature_tensor(output: Any) -> "torch.Tensor":
     return output[0]
 
 
-class VisualSearchError(RuntimeError):
-    """Raised for visual-search-specific failures."""
+from src.errors import VisualSearchError  # noqa: E402,F401  (re-exported: defined in src/errors.py)
 
 
 class VisualSearchEngine:

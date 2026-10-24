@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from langchain.memory import ConversationBufferWindowMemory
 from langchain.tools import StructuredTool
@@ -28,10 +28,12 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 # raises "Unsupported function call type" at agent-construction time.
 
 from src.config import GEMINI_API_KEY, GEMINI_MODEL, logger, require_api_key
-from src.fusion_engine import FusionEngine
-from src.semantic_search import SemanticSearchEngine
-from src.sentiment_engine import SentimentEngine
-from src.tmdb_client import TMDBClient
+
+if TYPE_CHECKING:  # type hints only — keeps PyTorch / ChromaDB out of the lite deployment
+    from src.fusion_engine import FusionEngine
+    from src.semantic_search import SemanticSearchEngine
+    from src.sentiment_engine import SentimentEngine
+    from src.tmdb_client import TMDBClient
 
 _CINEBOT_PERSONA = (
     "You are CineBot, a knowledgeable and friendly movie critic friend "
@@ -148,10 +150,11 @@ class TrendingInput(BaseModel):
 
 
 def _build_tools(
-    semantic: SemanticSearchEngine,
+    semantic: SemanticSearchEngine | None,
     tmdb: TMDBClient,
-    fusion: FusionEngine,
-    sentiment: SentimentEngine,
+    fusion: FusionEngine | None,
+    sentiment: SentimentEngine | None,
+    search_fn: Callable[[str], list[dict[str, Any]]] | None = None,
 ) -> list[StructuredTool]:
     """Wrap CineMatch Pro's engines as LangChain `StructuredTool`s.
 
@@ -160,19 +163,29 @@ def _build_tools(
         tmdb: TMDB client for `movie_details` and `trending_tool`.
         fusion: Fusion engine for `recommendation_tool`.
         sentiment: Sentiment engine for `sentiment_tool`.
+        search_fn: Fallback for `movie_search` when there is no semantic
+            engine (lite deployment): a callable returning movie dicts
+            (``title`` and optionally ``movie_id`` / ``similarity_pct``).
 
     Returns:
-        list[StructuredTool]: Tools ready to be passed to the LangChain
-        agent.
+        list[StructuredTool]: The five tools. A tool whose engine is not
+        available answers that it is unavailable instead of failing.
     """
 
     def movie_search(query: str) -> str:
         """Semantic search over the movie corpus by natural-language query."""
-        results = semantic.search(query, top_k=5)
+        if semantic is not None:
+            results = semantic.search(query, top_k=5)
+        elif search_fn is not None:
+            results = search_fn(query)
+        else:
+            return "Movie search is unavailable in this deployment."
         if not results:
             return "No matching movies found."
         return "; ".join(
-            f"{r['title']}" + (f" [movie_id={r['movie_id']}]" if r.get("movie_id") is not None else "") + f" ({r['similarity_pct']}% match)"
+            f"{r['title']}"
+            + (f" [movie_id={r['movie_id']}]" if r.get("movie_id") is not None else "")
+            + (f" ({r['similarity_pct']}% match)" if r.get("similarity_pct") is not None else "")
             for r in results
         )
 
@@ -190,6 +203,8 @@ def _build_tools(
 
     def recommendation_tool(seed_movie_id: int, user_id: int = 0) -> str:
         """Get hybrid recommendations similar to a given movie."""
+        if fusion is None:
+            return "Recommendations are unavailable in this deployment."
         scored = fusion.recommend(user_id=user_id, seed_movie_id=seed_movie_id, top_k=5)
         if not scored:
             return "No recommendations found for that movie."
@@ -203,6 +218,8 @@ def _build_tools(
 
     def sentiment_tool(reviews: list[str]) -> str:
         """Aggregate positive-sentiment percentage across a list of reviews."""
+        if sentiment is None:
+            return "Sentiment analysis is unavailable in this deployment (it needs the RoBERTa model)."
         agg = sentiment.aggregate_movie_sentiment(reviews)
         return f"{agg['positive_pct']}% positive across {agg['review_count']} reviews."
 
@@ -264,17 +281,18 @@ class CineBot:
 
     def __init__(
         self,
-        semantic: SemanticSearchEngine,
+        semantic: SemanticSearchEngine | None,
         tmdb: TMDBClient,
-        fusion: FusionEngine,
-        sentiment: SentimentEngine,
+        fusion: FusionEngine | None,
+        sentiment: SentimentEngine | None,
         api_key: str | None = GEMINI_API_KEY,
         model_name: str = GEMINI_MODEL,
         memory_turns: int = 10,
+        search_fn: Callable[[str], list[dict[str, Any]]] | None = None,
     ) -> None:
         key = require_api_key("GEMINI_API_KEY", api_key)
         self.llm = ChatGoogleGenerativeAI(model=model_name, google_api_key=key, temperature=0.7)
-        self.tools = _build_tools(semantic, tmdb, fusion, sentiment)
+        self.tools = _build_tools(semantic, tmdb, fusion, sentiment, search_fn=search_fn)
         self._tools_by_name = {tool.name: tool for tool in self.tools}
         self.memory = ConversationBufferWindowMemory(
             k=memory_turns, memory_key="chat_history", return_messages=True

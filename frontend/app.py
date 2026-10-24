@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import html
 import os
+import sys
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -221,7 +223,77 @@ st.markdown(_CUSTOM_CSS, unsafe_allow_html=True)
 # API client helpers — thin wrappers around the FastAPI backend with
 # defensive error handling so a backend hiccup never crashes the UI.
 # ---------------------------------------------------------------------------
-def _describe_request_error(path: str, exc: requests.exceptions.RequestException) -> str:
+# ---------------------------------------------------------------------------
+# Backend transport — remote API (default) or the same API running inside this process
+# ---------------------------------------------------------------------------
+# Embedded mode (CINEMATCH_EMBEDDED=1) is how the free "lite" deployment on Streamlit Community Cloud
+# runs: there is no separate API server — the FastAPI app is called in-process, so every screen uses
+# exactly the same endpoints and code as the full deployment.
+_EMBEDDED = os.getenv("CINEMATCH_EMBEDDED", "").strip().lower() in {"1", "true", "yes", "on"}
+
+try:  # httpx is present whenever the backend is (embedded mode / full install); a UI-only install may lack it
+    import httpx
+
+    _HTTP_ERRORS: tuple[type[BaseException], ...] = (requests.exceptions.RequestException, httpx.HTTPError)
+except ImportError:  # pragma: no cover - depends on the install
+    _HTTP_ERRORS = (requests.exceptions.RequestException,)
+
+
+@st.cache_resource(show_spinner="Starting CineMatch engines — the first load takes a minute...")
+def _embedded_client() -> Any:
+    """Create (once per server process) the in-process client for the FastAPI app.
+
+    Entering the client runs the API's startup: it downloads the trained artifacts from the Hugging Face
+    Hub if they are missing and loads the engines.
+
+    Returns:
+        Any: A started ``fastapi.testclient.TestClient``.
+    """
+    root = str(Path(__file__).resolve().parents[1])
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from fastapi.testclient import TestClient
+
+    from serving.api import app
+
+    client = TestClient(app, raise_server_exceptions=False)  # server errors come back as HTTP 500, not crashes
+    client.__enter__()
+    return client
+
+
+def _fetch_health() -> dict[str, Any] | None:
+    """Ask the backend which engines are loaded (``None`` if it is unreachable).
+
+    Returns:
+        dict[str, Any] | None: The ``/health`` JSON body, or ``None``.
+    """
+    try:
+        if _EMBEDDED:
+            response = _embedded_client().get("/health")
+        else:
+            response = requests.get(f"{API_BASE_URL}/health", timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except _HTTP_ERRORS:
+        return None
+    except Exception:  # noqa: BLE001 - embedded startup failures (missing artifacts, import errors) must not crash the page
+        return None
+
+
+def _engine_available(name: str) -> bool:
+    """Whether a backend engine is loaded (unknown engines count as available).
+
+    Args:
+        name: Key from the ``/health`` engines map, e.g. ``"visual_search"``.
+
+    Returns:
+        bool: ``False`` only when the backend explicitly reported the engine as not loaded.
+    """
+    engines = st.session_state.get("_engines") or {}
+    return bool(engines.get(name, True))
+
+
+def _describe_request_error(path: str, exc: Exception) -> str:
     """Turn a `requests` failure into a message that says what really went wrong.
 
     Args:
@@ -256,10 +328,13 @@ def _api_get(path: str, params: dict[str, Any] | None = None, timeout: int = 15)
         caller is responsible for showing an appropriate UI fallback.
     """
     try:
-        response = requests.get(f"{API_BASE_URL}{path}", params=params, timeout=timeout)
+        if _EMBEDDED:
+            response = _embedded_client().get(path, params=params)
+        else:
+            response = requests.get(f"{API_BASE_URL}{path}", params=params, timeout=timeout)
         response.raise_for_status()
         return response.json()
-    except requests.exceptions.RequestException as exc:
+    except _HTTP_ERRORS as exc:
         st.warning(_describe_request_error(path, exc))
         return None
 
@@ -277,10 +352,13 @@ def _api_post(path: str, json_body: dict[str, Any], timeout: int = 30) -> dict[s
         request failure.
     """
     try:
-        response = requests.post(f"{API_BASE_URL}{path}", json=json_body, timeout=timeout)
+        if _EMBEDDED:
+            response = _embedded_client().post(path, json=json_body)
+        else:
+            response = requests.post(f"{API_BASE_URL}{path}", json=json_body, timeout=timeout)
         response.raise_for_status()
         return response.json()
-    except requests.exceptions.RequestException as exc:
+    except _HTTP_ERRORS as exc:
         st.warning(_describe_request_error(path, exc))
         return None
 
@@ -320,12 +398,14 @@ def _api_post_file(
         dict[str, Any] | None: Parsed JSON body, or `None` on failure.
     """
     try:
-        response = requests.post(
-            f"{API_BASE_URL}{path}", params=params, files={"file": (file_name, data, mime)}, timeout=timeout
-        )
+        files = {"file": (file_name, data, mime)}
+        if _EMBEDDED:
+            response = _embedded_client().post(path, params=params, files=files)
+        else:
+            response = requests.post(f"{API_BASE_URL}{path}", params=params, files=files, timeout=timeout)
         response.raise_for_status()
         return response.json()
-    except requests.exceptions.RequestException as exc:
+    except _HTTP_ERRORS as exc:
         st.warning(_describe_request_error(path, exc))
         return None
 
@@ -542,6 +622,13 @@ def screen_home() -> None:
         unsafe_allow_html=True,
     )
 
+    if (st.session_state.get("_engines") or {}).get("lite_mode"):
+        st.info(
+            "⚡ **Lite demo** — search, movie cards, cast & crew, related movies and CineBot are live. "
+            "Poster visual search, plot-semantic search and RoBERTa review sentiment need the full models "
+            "(see the README)."
+        )
+
     with st.form("home_search", border=False):
         col1, col2 = st.columns([4, 1])
         search_query = col1.text_input(
@@ -610,6 +697,13 @@ def _render_taste_profile() -> None:
 def screen_visual_search() -> None:
     """Render Screen 2: Visual Search — poster upload + text-to-poster search."""
     _page_header("🖼️", "Visual Search", "Upload a movie poster, or describe the visual style you're looking for.")
+
+    if not _engine_available("visual_search"):
+        st.info(
+            "🖼️ Visual search needs the CLIP model and a 56,000-poster index, which this lite deployment "
+            "does not load. It is part of the full version — see the project README for the full setup."
+        )
+        return
 
     tab_upload, tab_text = st.tabs(["Upload Poster", "Describe the Style"])
 
@@ -739,6 +833,8 @@ def screen_movie_card(movie_id: int | None = None, tmdb_id: int | None = None) -
     st.markdown("### 🤖 Review Sentiment Intelligence")
     if movie_id is None:
         st.caption("Sentiment analysis is available for movies in our catalogue.")
+    elif not _engine_available("sentiment_engine"):
+        st.caption("RoBERTa review sentiment is part of the full version and is not enabled in this lite deployment.")
     else:
         st.caption("Fetches this movie's reviews from TMDB and scores them with the fine-tuned RoBERTa model.")
         result_key = f"sentiment_result_{movie_id}"
@@ -1075,15 +1171,6 @@ _NAV_ICONS = {
 }
 
 
-def _backend_online() -> bool:
-    """Whether the API answers ``/health`` (without showing the URL to the user)."""
-    try:
-        requests.get(f"{API_BASE_URL}/health", timeout=5).raise_for_status()
-        return True
-    except requests.exceptions.RequestException:
-        return False
-
-
 def main() -> None:
     """Render the sidebar navigation and dispatch to the selected screen."""
     _init_session_state()
@@ -1119,7 +1206,9 @@ def main() -> None:
         format_func=lambda name: f"{_NAV_ICONS.get(name, '')}  {name}",
     )
 
-    if not _backend_online():
+    health = _fetch_health()
+    st.session_state["_engines"] = (health or {}).get("engines", {})
+    if health is None:
         st.sidebar.error("Backend is offline. Start the API server, then refresh this page.")
     watchlist_count = len(st.session_state["watchlist"])
     if watchlist_count:

@@ -1,7 +1,9 @@
 """Deploy the FastAPI backend to a free Hugging Face Space (Docker SDK).
 
-Why a Space: the models need several GB of RAM. Hugging Face's free CPU Space
-gives 2 vCPU / 16 GB, while Render's free tier is 512 MB. The script uploads only
+Why a Space: the models need several GB of RAM. A Hugging Face CPU Basic Space
+gives 2 vCPU / 16 GB (Render's free tier is only 512 MB). NOTE: since late 2026
+Docker Spaces on CPU Basic require a Hugging Face PRO subscription ($9/month,
+cancellable); without it Hugging Face answers "402 Payment Required". The script uploads only
 what the Docker image needs (Dockerfile, requirements.txt, src/, services/,
 serving/, scripts/) plus the Space README that tells Hugging Face to use Docker
 on port 8000, then sets non-secret variables. Secrets (API keys, read token) are
@@ -106,8 +108,20 @@ def main(argv: list[str] | None = None) -> int:
 
     from huggingface_hub import HfApi
 
+    from huggingface_hub.errors import HfHubHTTPError
+
     api = HfApi(token=token)
-    api.create_repo(repo_id=args.space_id, repo_type="space", space_sdk="docker", exist_ok=True)
+    try:
+        api.create_repo(repo_id=args.space_id, repo_type="space", space_sdk="docker", exist_ok=True)
+    except HfHubHTTPError as exc:
+        if getattr(getattr(exc, "response", None), "status_code", None) == 402:
+            logger.error(
+                "Hugging Face refused to create the Space (402 Payment Required): Docker Spaces on the free CPU "
+                "tier now need a PRO subscription (https://huggingface.co/subscribe/pro, $9/month, cancel anytime). "
+                "Subscribe and re-run this command, or host the API elsewhere (see README -> Deployment)."
+            )
+            return 1
+        raise
     with tempfile.TemporaryDirectory() as tmp:
         staged = stage_space_files(Path(tmp))
         logger.info("Uploading %d files to Space %s ...", len(staged), args.space_id)

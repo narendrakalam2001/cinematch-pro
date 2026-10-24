@@ -10,14 +10,18 @@ Intelligence Card (More Like X, By Same Director, Starring X, etc.).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
-from src.collaborative_filter import CollaborativeFilter, CollaborativeFilterError
 from src.config import logger, settings
 from src.content_filter import ContentBasedFilter, ContentFilterError
-from src.semantic_search import SemanticSearchEngine, SemanticSearchError
+from src.errors import CollaborativeFilterError, SemanticSearchError
+
+if TYPE_CHECKING:  # type hints only — importing these at runtime would load PyTorch / ChromaDB / surprise
+    from src.collaborative_filter import CollaborativeFilter
+    from src.semantic_search import SemanticSearchEngine
 
 
 # Columns holding Python lists in the merged movie table. Parquet stores them
@@ -117,9 +121,9 @@ class FusionEngine:
 
     def __init__(
         self,
-        cf: CollaborativeFilter,
+        cf: CollaborativeFilter | None,
         content: ContentBasedFilter,
-        semantic: SemanticSearchEngine,
+        semantic: SemanticSearchEngine | None,
         movies: pd.DataFrame,
         id_col: str = "movieId",
     ) -> None:
@@ -173,15 +177,16 @@ class FusionEngine:
         content_norm = _normalize_scores(content_candidates)
 
         cf_scores: dict[int, float] = {}
-        try:
-            cf_ranked = self.cf.recommend_for_user(user_id, candidate_ids, top_k=len(candidate_ids))
-            cf_scores = _normalize_scores(cf_ranked)
-        except CollaborativeFilterError as exc:
-            logger.warning("CF unavailable, falling back to content+semantic only: %s", exc)
+        if self.cf is not None:
+            try:
+                cf_ranked = self.cf.recommend_for_user(user_id, candidate_ids, top_k=len(candidate_ids))
+                cf_scores = _normalize_scores(cf_ranked)
+            except CollaborativeFilterError as exc:
+                logger.warning("CF unavailable, falling back to content+semantic only: %s", exc)
 
         semantic_scores: dict[int, float] = {}
         seed_row = self.movies.loc[seed_movie_id] if seed_movie_id in self.movies.index else None
-        if seed_row is not None and isinstance(seed_row.get("combined_features"), str):
+        if self.semantic is not None and seed_row is not None and isinstance(seed_row.get("combined_features"), str):
             try:
                 semantic_results = self.semantic.search(
                     seed_row["combined_features"][:500], top_k=candidate_pool_size
@@ -192,6 +197,14 @@ class FusionEngine:
                 logger.warning("Semantic search unavailable for fusion: %s", exc)
 
         weights = settings.fusion
+        # Signals that are unavailable (lite mode, or a failed engine) are dropped and the remaining
+        # weights re-normalised so scores stay on the same 0..1 scale.
+        active = {
+            "collaborative": weights.collaborative_weight if cf_scores else 0.0,
+            "content": weights.content_weight,
+            "semantic": weights.semantic_weight if semantic_scores else 0.0,
+        }
+        total_weight = sum(active.values()) or 1.0
         fused: list[ScoredMovie] = []
         for movie_id in candidate_ids:
             if movie_id == seed_movie_id:
@@ -200,10 +213,8 @@ class FusionEngine:
             cf_s = cf_scores.get(movie_id, 0.0)
             sem = semantic_scores.get(movie_id, 0.0)
             fused_score = (
-                weights.collaborative_weight * cf_s
-                + weights.content_weight * c
-                + weights.semantic_weight * sem
-            )
+                active["collaborative"] * cf_s + active["content"] * c + active["semantic"] * sem
+            ) / total_weight
             fused.append(
                 ScoredMovie(
                     movie_id=movie_id,
@@ -385,7 +396,7 @@ class FusionEngine:
 
         # Row 8 — International Similar Films (semantic, cross-language)
         combined_text = seed.get("combined_features")
-        if isinstance(combined_text, str) and combined_text.strip():
+        if self.semantic is not None and isinstance(combined_text, str) and combined_text.strip():
             try:
                 semantic_results = self.semantic.search(combined_text[:500], top_k=per_row_limit + 5)
                 ids = [r["movie_id"] for r in semantic_results if r["movie_id"] != seed_movie_id]
@@ -398,16 +409,17 @@ class FusionEngine:
                 pass
 
         # Row 9 — Users Also Watched (pure collaborative filtering)
-        try:
-            candidate_pool = [mid for mid in self.movies[self.id_col].tolist() if mid != seed_movie_id]
-            cf_ranked = self.cf.recommend_for_user(user_id, candidate_pool[:200], top_k=per_row_limit)
-            add_row(
-                "Users Who Watched This Also Watched",
-                "Based on collaborative filtering across similar viewers",
-                [mid for mid, _ in cf_ranked],
-            )
-        except CollaborativeFilterError:
-            pass
+        if self.cf is not None:
+            try:
+                candidate_pool = [mid for mid in self.movies[self.id_col].tolist() if mid != seed_movie_id]
+                cf_ranked = self.cf.recommend_for_user(user_id, candidate_pool[:200], top_k=per_row_limit)
+                add_row(
+                    "Users Who Watched This Also Watched",
+                    "Based on collaborative filtering across similar viewers",
+                    [mid for mid, _ in cf_ranked],
+                )
+            except CollaborativeFilterError:
+                pass
 
         # Row 10 — Sentiment Champions (same genre, highest sentiment)
         if genre_names and "genre_names" in self.movies.columns and "sentiment_score" in self.movies.columns:
