@@ -58,11 +58,11 @@ This is a capstone built to production standards: type hints, docstrings, struct
 
 | Resource | Link |
 |---|---|
+| 🌐 **Live demo (Streamlit App)** |[https://cinematch-pro-lite.streamlit.app](https://cinematch-pro-lite.streamlit.app) |
+| 🚀 **FastAPI Swagger UI (local)** | Hosted deployment is not available. Local / Docker: `python scripts/run_api.py` → `http://localhost:8000/docs` (The Render Blueprint is included in the repository, but a plan with at least 1.5 GB RAM is required) |
+| 🎬 **Streamlit App (local)** | `python -m scripts.run_app` → `http://localhost:8501` |
 | 📓 **EDA Notebook** | [notebooks/cinematch_pro_eda.ipynb](notebooks/cinematch_pro_eda.ipynb) |
 | 🏋️ **Kaggle Training Notebook** (GPU pipeline, end to end) | [notebooks/Kaggle_Training.ipynb](notebooks/Kaggle_Training.ipynb) |
-| 🚀 **FastAPI Swagger UI (local)** | `http://localhost:8000/docs` |
-| 🎬 **Streamlit App (local)** | `http://localhost:8501` |
-| 🌐 **Live demo** | _Deployment in progress — Streamlit Community Cloud (lite, free)_ |
 
 ---
 
