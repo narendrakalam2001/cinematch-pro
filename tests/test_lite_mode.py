@@ -61,11 +61,14 @@ def test_the_api_imports_and_works_when_the_heavy_libraries_are_not_installed():
     The heavy modules are *blocked* by an import hook that raises ModuleNotFoundError, exactly as on a
     machine without them. Merely checking "nothing got loaded" would be wrong on a full install, because
     LangChain itself loads ``transformers`` (and so PyTorch) whenever it is installed.
+
+    ``google.generativeai`` is deliberately NOT blocked: it is a small package (not a memory problem) and some
+    ``langchain-google-genai`` 2.0.x releases import it at import time, so blocking it would test pip's
+    version resolution rather than lite mode.
     """
     code = (
         "import importlib.abc, sys\n"
-        "BLOCKED = ('torch','transformers','chromadb','sentence_transformers','faiss','surprise','spacy',"
-        "'google.generativeai','datasets')\n"
+        "BLOCKED = ('torch','transformers','chromadb','sentence_transformers','faiss','surprise','spacy','datasets')\n"
         "class Block(importlib.abc.MetaPathFinder):\n"
         "    def find_spec(self, name, path, target=None):\n"
         "        if any(name == b or name.startswith(b + '.') for b in BLOCKED):\n"
