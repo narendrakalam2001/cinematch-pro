@@ -5,6 +5,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688.svg)](https://fastapi.tiangolo.com)
 [![Streamlit](https://img.shields.io/badge/Streamlit-Frontend-red.svg)](https://streamlit.io)
 [![Transformers](https://img.shields.io/badge/🤗_Transformers-CLIP_·_RoBERTa_·_SBERT-yellow.svg)](https://huggingface.co/docs/transformers)
+[![HF Models](https://img.shields.io/badge/🤗_Models-Public_on_Hugging_Face-yellow.svg)](https://huggingface.co/narendrakalam2001/cinematch-pro-artifacts)
 [![FAISS](https://img.shields.io/badge/FAISS-Visual_Search-blueviolet.svg)](https://github.com/facebookresearch/faiss)
 [![ChromaDB](https://img.shields.io/badge/ChromaDB-Semantic_Search-orange.svg)](https://www.trychroma.com)
 [![LangChain](https://img.shields.io/badge/LangChain-Gemini_CineBot-1C3C3C.svg)](https://python.langchain.com)
@@ -61,6 +62,7 @@ This is a capstone built to production standards: type hints, docstrings, struct
 | 🌐 **Live demo (Streamlit App)** | [https://cinematch-pro-lite.streamlit.app](https://cinematch-pro-lite.streamlit.app) |
 | 🚀 **FastAPI Swagger UI (local)** | Hosted deployment is not available. Local / Docker: `python scripts/run_api.py` → `http://localhost:8000/docs` (The Render Blueprint is included in the repository, but a plan with at least 1.5 GB RAM is required) |
 | 🎬 **Streamlit App (local)** | `python -m scripts.run_app` → `http://localhost:8501` |
+| 🤗 **Trained models (public)** | [huggingface.co/narendrakalam2001/cinematch-pro-artifacts](https://huggingface.co/narendrakalam2001/cinematch-pro-artifacts) — SVD, TF-IDF, FAISS index, RoBERTa, ChromaDB store and the movie catalogue. Public, no token needed: set `HF_ARTIFACTS_REPO` and the app downloads them on first start |
 | 📓 **EDA Notebook** | [notebooks/cinematch_pro_eda.ipynb](notebooks/cinematch_pro_eda.ipynb) |
 | 🏋️ **Kaggle Training Notebook** (GPU pipeline, end to end) | [notebooks/Kaggle_Training.ipynb](notebooks/Kaggle_Training.ipynb) |
 
@@ -97,7 +99,7 @@ This is a capstone built to production standards: type hints, docstrings, struct
 ║ │ RMSE 0.8005 (< 0.87)     │  │ 56,029 poster vectors    │  │ Acc 94.26% · F1 94.29%   │ ║
 ║ │ 32,564 users             │  │ text -> poster search    │  │ + spaCy aspect extract   │ ║
 ║ └──────────────────────────┘  └──────────────────────────┘  └──────────────────────────┘ ║
-║ Output: models/ · chromadb_store/ · merged_movies.parquet → private HF Hub repo          ║
+║ Output: models/ · chromadb_store/ · merged_movies.parquet → public  HF Hub repo          ║
 ║                                             ▼                                            ║
 ║ INTELLIGENCE LAYER — 5 MODULES                                                           ║
 ║ ┌──── M1 VISUAL SEARCH ────┐  ┌─ M2 HYBRID RECOMMENDER ──┐  ┌── M3 SENTIMENT ENGINE ───┐ ║
@@ -425,13 +427,28 @@ python -m spacy download en_core_web_sm
 
 ### 2. Get the trained artifacts
 
-The models are produced on a free Kaggle GPU by [`notebooks/Kaggle_Training.ipynb`](notebooks/Kaggle_Training.ipynb), which bundles them into `cinematch_artifacts.zip`. Extract it into the project root so these exist:
+The trained models are published in a **public Hugging Face repo** — [`narendrakalam2001/cinematch-pro-artifacts`](https://huggingface.co/narendrakalam2001/cinematch-pro-artifacts) — so you can run the whole project **without training anything and without a token**.
+
+**Option A — automatic (recommended).** Add the repo id to `.env` (step 3) and start the app; the first start downloads what it needs into `models/`, `chromadb_store/` and `data/processed/` (~1.2 GB for the full version, only ~70 MB for the lite build):
+
+```env
+HF_ARTIFACTS_REPO=narendrakalam2001/cinematch-pro-artifacts
+```
+
+**Option B — download now.** Fetch the files before starting anything:
+
+```bash
+python -c "from src.artifact_store import ensure_artifacts; ensure_artifacts(repo_id='narendrakalam2001/cinematch-pro-artifacts')"
+# lite build only (~70 MB):  ensure_artifacts(repo_id='narendrakalam2001/cinematch-pro-artifacts', lite=True)
+```
+
+**Option C — your own training run.** [`notebooks/Kaggle_Training.ipynb`](notebooks/Kaggle_Training.ipynb) produces the same files on a free Kaggle GPU and bundles them into `cinematch_artifacts.zip`; extract it into the project root so these exist:
 
 ```
 models/            chromadb_store/            data/processed/merged_movies.parquet
 ```
 
-*(No Kaggle run yet? See [Training the Models](#️-training-the-models) to rebuild them from the raw datasets.)*
+*(Want to retrain? See [Training the Models](#️-training-the-models) to rebuild everything from the raw datasets.)*
 
 ### 3. Configure API keys
 
@@ -444,6 +461,7 @@ TMDB_API_KEY=...         # themoviedb.org → Settings → API (free)
 OMDB_API_KEY=...         # omdbapi.com (free, optional — IMDB rating + awards)
 GEMINI_API_KEY=...       # aistudio.google.com/apikey (free, needed for CineBot)
 GEMINI_MODEL=gemini-3.5-flash   # model ids are retired regularly — change here, not in code
+HF_ARTIFACTS_REPO=narendrakalam2001/cinematch-pro-artifacts   # public repo → trained models download on first start (no token needed)
 ```
 
 Without `OMDB_API_KEY` the app still works (IMDB rating and awards are hidden); without `GEMINI_API_KEY` only CineBot is disabled.
@@ -471,7 +489,7 @@ Result: all good
 
 ### 5. (Recommended) Rebuild the semantic index
 
-Skips plot-less movies so natural-language search ranks real plots first (≈ 35 min on a CPU laptop, 2 min on a GPU):
+Skips plot-less movies so natural-language search ranks real plots first (≈ 35 min on a CPU laptop, 2 min on a GPU). **Not needed if you downloaded the artifacts from the Hugging Face repo** — its ChromaDB store was built with this filter (52,703 plots):
 
 ```bash
 python -m scripts.ingest_descriptions --reset
@@ -597,9 +615,9 @@ docker run -p 8000:8000 --env-file .env \
   -v "$(pwd)/data:/app/data" \
   cinematch-pro-api
 
-# B) Let the container download them from the Hugging Face Hub at startup
+# B) Let the container download them from the public Hugging Face repo at startup (no token needed)
 docker run -p 8000:8000 --env-file .env \
-  -e HF_ARTIFACTS_REPO=<user>/cinematch-pro-artifacts -e HF_TOKEN=<read-token> \
+  -e HF_ARTIFACTS_REPO=narendrakalam2001/cinematch-pro-artifacts \
   cinematch-pro-api
 ```
 
@@ -609,7 +627,7 @@ docker run -p 8000:8000 --env-file .env \
 | User | non-root (uid 1000) |
 | Port | `8000` (honours `$PORT` on Render) → Swagger at `/docs` |
 | Health | `GET /health` — Docker `HEALTHCHECK` with a 10-minute start period (artifacts download on first start) |
-| Env | `TMDB_API_KEY` · `GEMINI_API_KEY` · `OMDB_API_KEY` · `GEMINI_MODEL` · `HF_ARTIFACTS_REPO` · `HF_TOKEN` |
+| Env | `TMDB_API_KEY` · `GEMINI_API_KEY` · `OMDB_API_KEY` · `GEMINI_MODEL` · `HF_ARTIFACTS_REPO` · `HF_TOKEN` (only if the repo is private) |
 
 The Streamlit frontend runs separately and reads `API_BASE_URL` (no `docker-compose` yet — see the roadmap).
 
@@ -640,14 +658,15 @@ Two ways to deploy, depending on budget:
 | Works | title/mood search, movie cards (cast, crew, trailer, budget, awards), content-based related rows, actor/director pages, trending, watchlist, CineBot (Gemini) | everything above **plus** poster visual search, plot-semantic search, collaborative filtering and RoBERTa review sentiment |
 | Entrypoint | `lite/streamlit_app.py` | `serving/api.py` + `frontend/app.py` |
 
-**Trained artifacts** (~1.2 GB) are too big for GitHub (100 MB per file), so they live in a *private* Hugging Face model repo; the deployed app downloads what it needs at startup (lite: only the ~70 MB catalogue + TF-IDF).
+**Trained artifacts** (~1.2 GB) are too big for GitHub (100 MB per file), so they live in a **public** Hugging Face model repo, [`narendrakalam2001/cinematch-pro-artifacts`](https://huggingface.co/narendrakalam2001/cinematch-pro-artifacts). Anyone — including a reviewer running the project — can download them without a token; the deployed app fetches what it needs at startup (lite: only the ~70 MB catalogue + TF-IDF).
 
 ```bash
-# 1) upload the artifacts once (needs HF_TOKEN with WRITE access)
-python -m scripts.upload_artifacts --repo-id <user>/cinematch-pro-artifacts
+# 1) upload the artifacts once (needs HF_TOKEN with WRITE access; add --public to create a public repo)
+python -m scripts.upload_artifacts --repo-id <user>/cinematch-pro-artifacts --public
 
 # 2a) LITE (free): Streamlit Community Cloud -> main file  lite/streamlit_app.py
-#     Secrets: HF_ARTIFACTS_REPO, HF_TOKEN (read), TMDB_API_KEY, GEMINI_API_KEY, OMDB_API_KEY (optional)
+#     Secrets: HF_ARTIFACTS_REPO, TMDB_API_KEY, GEMINI_API_KEY, OMDB_API_KEY (optional)
+#     (HF_TOKEN is only needed if you keep the artifacts repo private)
 
 # 2b) FULL: deploy the API to a Hugging Face Docker Space (PRO), then point a Streamlit app at it
 python -m scripts.deploy_hf_space --space-id <user>/cinematch-pro-api --artifacts-repo <user>/cinematch-pro-artifacts
@@ -987,7 +1006,7 @@ Two heavier endpoints were sampled in a small 3-session run (`--with-chat --with
 - **Watchlist and taste profile live in the browser session** — they are not stored per user yet.
 - **External services** (TMDB, OMDB, Gemini) have rate limits and may be unavailable; the app degrades gracefully but features that depend on them pause.
 - **Popularity and language bias.** MovieLens is dominated by English-language, widely rated films, so regional and newer titles get weaker collaborative signals; the content, semantic and TMDB-backed features partly compensate.
-- **Data licensing.** MovieLens data may not be redistributed, which is why the trained artifacts live in a *private* Hugging Face repo and raw datasets are not committed to git.
+- **Data licensing.** The trained artifacts are published in a public Hugging Face repo so the project can be run by anyone. They are *derived* files (trained models, indexes and the processed movie catalogue built from MovieLens and TMDB metadata) — the raw datasets are not committed to git. MovieLens is used under GroupLens' research licence: non-commercial use, citation of Harper & Konstan (2015), and no implied endorsement by the University of Minnesota or GroupLens; the same conditions apply to the derived files. TMDB data is attributed as required (see [Attribution](#-datasets-credits--attribution)). This is a non-commercial portfolio / research project.
 - **Privacy.** There are no user accounts; the watchlist and taste profile exist only in the visitor's session and nothing personal is stored.
 - **LLM caution.** CineBot is grounded in the platform's tools and every movie it names is matched against the catalogue/TMDB, but a language model can still be wrong — treat its answers as suggestions.
 - Recommendations are for entertainment discovery, not a substitute for personal judgement.
@@ -998,7 +1017,7 @@ Two heavier endpoints were sampled in a small 3-session run (`--with-chat --with
 
 - [ ] Persistent user accounts, watchlists and an online "rate a movie → update recommendations" loop
 - [ ] Surface the "why recommended" explanations (`explanation_engine.py`) in the UI
-- [ ] Host model files and the FAISS index on Hugging Face Hub for one-command deployment
+- [x] Host model files and the FAISS index on the Hugging Face Hub (public repo [`narendrakalam2001/cinematch-pro-artifacts`](https://huggingface.co/narendrakalam2001/cinematch-pro-artifacts)) so anyone can run the project
 - [ ] `docker-compose` for API + Streamlit
 - [ ] Early stopping on validation loss for the sentiment model
 - [ ] Offline retrieval benchmark for visual and semantic search
@@ -1013,7 +1032,7 @@ Two heavier endpoints were sampled in a small 3-session run (`--with-chat --with
 
 **Narendra Kalam** — MSc Computer Science (Gold Medalist — NASSCOM, Full Stack Data Science + AI)
 
-> Building 20+ industry-level, end-to-end ML systems across all domains.
+> Building 30+ industry-level, end-to-end ML systems across all domains.
 
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue?logo=linkedin)](https://www.linkedin.com/in/narendra-kalam/)
 [![Kaggle](https://img.shields.io/badge/Kaggle-Profile-20BEFF?logo=kaggle)](https://www.kaggle.com/narendrakalam)
@@ -1053,22 +1072,8 @@ Two heavier endpoints were sampled in a small 3-session run (`--with-chat --with
 | 27 | AgriSense AI | AgriTech | EfficientNetB3 | Accuracy = 98.44% · Macro-F1 = 0.9843 · 38 classes |
 | 28 | AI Loan Underwriting Platform | BFSI / Fintech | XGBoost (credit + fraud) | Credit ROC-AUC = 0.858 · Fraud ROC-AUC = 0.955 · 242 tests |
 | 29 | **CineMatch Pro** | **Entertainment / Media Tech** | **Hybrid SVD + TF-IDF + SBERT · CLIP · RoBERTa** | **RMSE = 0.8005 · Sentiment Acc = 94.26% · 56K posters** |
-
----|---|---|---|---|
-| 1 | Credit Card Fraud Detection | BFSI / Fintech | ExtraTrees | F1 = 0.8962 · 284K transactions |
-| 2 | Credit Risk Prediction | BFSI / Lending | LightGBM | F1 = 0.9741 · ROC-AUC = 0.9991 |
-| 3 | Customer Churn Prediction | Telecom / BFSI | CatBoost | F1 = 0.634 · Recall = 0.7312 |
-| 4 | House Price Prediction | Real Estate | CatBoost | RMSE = $20,128 · R² = 0.9053 |
-| 5 | Store Sales Forecasting | Retail / Supply Chain | LightGBM (Ensemble) | RMSLE = 0.3739 · R² = 0.9761 |
-| 6 | Energy Demand Forecasting | Energy / Utilities | ElasticNet | RMSE = 712.04 MW · R² = 0.9759 |
-| 7 | Stock Price & Risk Forecasting | Fintech / Capital Markets | Ridge | DirAcc = 53.44% · Sharpe = 0.80 |
-| 8 | Resume Screener AI | HR Tech | LightGBM | F1 = 0.7608 · Top-3 = 0.9416 |
-| 9 | ABSA Sentiment Analysis | E-Commerce / Banking | RidgeClassifier | Macro-F1 = 0.6212 · ROC-AUC = 0.823 |
-| 10 | Fake News Detector | Media Tech / Gov Tech | XGBoost | F1 = 0.9993 · ROC = 1.0000 |
-| 11 | BC5CDR Clinical NER | Biomedical NLP | BioBERT | F1 = 0.8847 · Chemical F1 = 0.9239 |
-| 12 | News Topic Modeling | Media Analytics | LDA (Gensim) | Cv = 0.6225 · Diversity = 0.92 |
-| 13 | Chest X-Ray Diagnosis | Healthcare AI | DenseNet121 | Mean AUC = 0.7864 · 14 classes |
-| 14 | **CineMatch Pro** | **Entertainment / Media Tech** | **Hybrid SVD + TF-IDF + SBERT · CLIP · RoBERTa** | **RMSE = 0.8005 · Sentiment Acc = 94.26% · 56K posters** |
+| 30 | DriveGuard AI | Computer Vision / Smart Cities | YOLOv8m + DeepSORT + Gemini RAG | mAP@0.5 = 0.680 · 31 API routes · 336 tests |
+| 31 | MathVision AI | EdTech / Computer Vision | TrOCR-large + SymPy | CER = 0.138 · 350/350 symbolic solved |
 
 ---
 
@@ -1082,6 +1087,8 @@ Two heavier endpoints were sampled in a small 3-session run (`--with-chat --with
 | [IMDB Dataset of 50K Movie Reviews](https://www.kaggle.com/datasets/lakshmi25npathi/imdb-dataset-of-50k-movie-reviews) — Kaggle | RoBERTa sentiment fine-tuning |
 | [TMDB API](https://www.themoviedb.org/documentation/api) | Live details, cast photos, trailers, trending, reviews |
 | [OMDb API](https://www.omdbapi.com/) | IMDB rating and awards |
+
+The trained artifacts are hosted publicly at [`narendrakalam2001/cinematch-pro-artifacts`](https://huggingface.co/narendrakalam2001/cinematch-pro-artifacts); they are derived from the datasets above and carry the same non-commercial / citation conditions.
 
 **This product uses the TMDB API but is not endorsed or certified by TMDB.**
 
