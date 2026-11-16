@@ -17,7 +17,7 @@
 > **Problem:** Recommendations are black boxes, you can't search by poster, and review sentiment is scattered across many sites  
 > **Solution:** One platform combining **Computer Vision + NLP + Recommender Systems + LLM** — visual search, a hybrid explainable recommender, aspect-based review sentiment and a movie-critic chatbot  
 > **Data:** [MovieLens 25M](https://grouplens.org/datasets/movielens/25m/) · [TMDB](https://www.themoviedb.org/) · [IMDB 50K reviews](https://www.kaggle.com/datasets/lakshmi25npathi/imdb-dataset-of-50k-movie-reviews) · [Movie posters](https://www.kaggle.com/datasets/neha1703/movie-genre-from-its-poster)  
-> **Industry Context:** Netflix India · Amazon Prime Video · Hotstar · JioCinema · BookMyShow · PVR — every OTT and ticketing platform needs intelligent discovery
+> **Industry Context:** OTT streaming and movie-ticketing platforms — every platform needs intelligent discovery
 
 ---
 
@@ -60,7 +60,7 @@ This is a capstone built to production standards: type hints, docstrings, struct
 | Resource | Link |
 |---|---|
 | 🌐 **Live demo (Streamlit App)** | [https://cinematch-pro-lite.streamlit.app](https://cinematch-pro-lite.streamlit.app) |
-| 🚀 **FastAPI Swagger UI (local)** | Hosted deployment is not available. Local / Docker: `python scripts/run_api.py` → `http://localhost:8000/docs` (The Render Blueprint is included in the repository, but a plan with at least 1.5 GB RAM is required) |
+| 🚀 **FastAPI Swagger UI (local)** | Hosted deployment is not available. Local / Docker: `python scripts/run_api.py` → `http://localhost:8000/docs` (The Render Blueprint is included in the repository, but a plan with at least 4 GB RAM is required) |
 | 🎬 **Streamlit App (local)** | `python -m scripts.run_app` → `http://localhost:8501` |
 | 🤗 **Trained models (public)** | [huggingface.co/narendrakalam2001/cinematch-pro-artifacts](https://huggingface.co/narendrakalam2001/cinematch-pro-artifacts) — SVD, TF-IDF, FAISS index, RoBERTa, ChromaDB store and the movie catalogue. Public, no token needed: set `HF_ARTIFACTS_REPO` and the app downloads them on first start |
 | 📓 **EDA Notebook** | [notebooks/cinematch_pro_eda.ipynb](notebooks/cinematch_pro_eda.ipynb) |
@@ -156,7 +156,7 @@ This is a capstone built to production standards: type hints, docstrings, struct
 
 ### 🖥️ User Portal
 
-Netflix-style dark portal — sidebar navigation, search, genre chips, trending row and session taste profile.
+Dark streaming-style portal — sidebar navigation, search, genre chips, trending row and session taste profile.
 
 ![User Portal](docs/screenshots/user_portal_ui.png)
 
@@ -654,7 +654,7 @@ Two ways to deploy, depending on budget:
 |---|---|---|
 | Hosting | One Streamlit Community Cloud app (UI + API in a single process) | FastAPI on a Docker host with ≥ 4 GB RAM + Streamlit Cloud for the UI |
 | Cost | $0 | Hugging Face PRO ($9/mo, Docker Space) or a paid Render instance |
-| Memory | fits the free tier (~1 GB) — no PyTorch is imported | needs several GB (PyTorch, CLIP, RoBERTa, SBERT, ChromaDB, SVD) |
+| Memory | fits the free tier (~1 GB) — no PyTorch is imported | needs ≥ 4 GB (PyTorch, CLIP, RoBERTa, SBERT, ChromaDB, SVD) |
 | Works | title/mood search, movie cards (cast, crew, trailer, budget, awards), content-based related rows, actor/director pages, trending, watchlist, CineBot (Gemini) | everything above **plus** poster visual search, plot-semantic search, collaborative filtering and RoBERTa review sentiment |
 | Entrypoint | `lite/streamlit_app.py` | `serving/api.py` + `frontend/app.py` |
 
@@ -982,7 +982,7 @@ Real problems found while building this, and how they were fixed:
 | `GET /movie/{id}` (Movie Card) | 1.3 s | 2.2 s |
 | `GET /movie/{id}` (related movie) | 1.3 s | 1.8 s |
 
-Two heavier endpoints were sampled in a small 3-session run (`--with-chat --with-sentiment`, so treat them as indicative): `POST /sentiment/{id}` ≈ 12 s median (fetch TMDB reviews + CPU RoBERTa inference; a movie with no TMDB reviews is skipped) and `POST /chat` ≈ 11 s median (two sequential Gemini calls plus tool execution). Repeated runs vary by roughly ±30 % because the Movie Card and chat latencies are dominated by TMDB and Gemini response times (earlier runs measured card medians of 0.9–1.4 s, sentiment 7–12 s and chat 11–14 s, with a 29 s worst case). Measure your own deployment with the same command.
+Two heavier endpoints were sampled in a small 3-session run (`--with-chat --with-sentiment`, so treat them as indicative): `POST /sentiment/{id}` ≈ 12 s median (fetch TMDB reviews + CPU RoBERTa inference; a movie with no TMDB reviews is skipped) and `POST /chat` ≈ 11 s median (two sequential Gemini calls plus tool execution). Repeated runs vary by roughly ±30 % because the Movie Card and chat latencies are dominated by TMDB and Gemini response times (earlier runs measured card medians of 0.9–1.4 s, sentiment 7–12 s and chat 11–14 s, with a 29 s worst case). These figures are for one machine — measure your own deployment with the same command.
 
 ---|---:|---:|
 | `GET /health` | 3 ms | 9 ms |
@@ -1034,9 +1034,9 @@ Two heavier endpoints were sampled in a small 3-session run (`--with-chat --with
 
 > Building 30+ industry-level, end-to-end ML systems across all domains.
 
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue?logo=linkedin)](https://www.linkedin.com/in/narendra-kalam/)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue?logo=linkedin)](https://www.linkedin.com/in/narendra-kalam)
 [![Kaggle](https://img.shields.io/badge/Kaggle-Profile-20BEFF?logo=kaggle)](https://www.kaggle.com/narendrakalam)
-[![Portfolio](https://img.shields.io/badge/Portfolio-Visit-green?logo=github)](https://narendrakalam2001.github.io/)
+[![Portfolio](https://img.shields.io/badge/Portfolio-Visit-green?logo=github)](https://narendrakalam2001.github.io)
 [![Email](https://img.shields.io/badge/Email-Contact-red?logo=gmail)](mailto:kalamnarendra2001@gmail.com)
 
 ### Portfolio Projects
@@ -1072,7 +1072,7 @@ Two heavier endpoints were sampled in a small 3-session run (`--with-chat --with
 | 27 | AgriSense AI | AgriTech | EfficientNetB3 | Accuracy = 98.44% · Macro-F1 = 0.9843 · 38 classes |
 | 28 | AI Loan Underwriting Platform | BFSI / Fintech | XGBoost (credit + fraud) | Credit ROC-AUC = 0.858 · Fraud ROC-AUC = 0.955 · 242 tests |
 | 29 | **CineMatch Pro** | **Entertainment / Media Tech** | **Hybrid SVD + TF-IDF + SBERT · CLIP · RoBERTa** | **RMSE = 0.8005 · Sentiment Acc = 94.26% · 56K posters** |
-| 30 | DriveGuard AI | Computer Vision / Smart Cities | YOLOv8m + DeepSORT + Gemini RAG | mAP@0.5 = 0.680 · 31 API routes · 336 tests |
+| 30 | DriveGuard AI | Computer Vision / Smart Cities | YOLOv8m + DeepSORT + Gemini RAG | mAP@0.5 = 0.680 · 31 API routes · 364 tests |
 | 31 | MathVision AI | EdTech / Computer Vision | TrOCR-large + SymPy | CER = 0.138 · 350/350 symbolic solved |
 
 ---
